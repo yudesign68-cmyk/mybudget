@@ -2437,6 +2437,9 @@ function saveReceipt() {
 function exitReview() {
   document.getElementById('nav').style.display = 'flex';
   document.getElementById('screen-review').style.display = 'none';
+  // Reset view to current month so saved expenses are visible
+  S.viewYear = new Date().getFullYear();
+  S.viewMonth = new Date().getMonth();
   _goTo('home');
 }
 
