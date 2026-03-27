@@ -1589,7 +1589,20 @@ function _goTo(screen) {
     repYear = S.viewYear;
     repMonth = S.viewMonth;
     setRepTab(S.repTab || 'monthly');
-    renderReport();
+    renderReport(); // render with local data first
+    // Then try to fetch fresh data from Sheets
+    fetchMonthFromSheets(repYear, repMonth).then(sheetsData => {
+      if (sheetsData && sheetsData.length > 0) {
+        // Merge Sheets data into S.expenses (replace this month's data)
+        const otherMonths = S.expenses.filter(e => {
+          const d = new Date(e.date + 'T00:00:00');
+          return !(d.getFullYear() === repYear && d.getMonth() === repMonth);
+        });
+        S.expenses = [...sheetsData, ...otherMonths];
+        saveLocal();
+        renderReport(); // re-render with fresh Sheets data
+      }
+    });
   }
 }
 
@@ -2462,8 +2475,85 @@ function exitReview() {
 }
 
 /* ============================================================
-   REPORT SCREEN
+   FETCH FROM SHEETS
    ============================================================ */
+async function fetchMonthFromSheets(year, month) {
+  const url = getSheetsUrl();
+  if (!url) return null;
+  try {
+    const res = await fetch(`${url}?action=getMonth&year=${year}&month=${month}`, {
+      method: 'GET', mode: 'cors'
+    });
+    const data = await res.json();
+    if (!data.success) return null;
+
+    // Convert Sheets rows back to S.expenses format
+    return sheetsRowsToExpenses(data.expenses || []);
+  } catch(e) {
+    return null;
+  }
+}
+
+function sheetsRowsToExpenses(rows) {
+  // Group rows by groupId to reconstruct receipt/linked types
+  const groups = {};
+  const singles = [];
+
+  rows.forEach(row => {
+    const type = row.type;
+    if (type === 'single') {
+      singles.push({
+        id: row.id,
+        type: 'single',
+        amount: parseFloat(row.amount) || 0,
+        merchant: row.merchant,
+        date: row.date,
+        category: row.category,
+        subCategory: row.subCategory || '',
+        tag: row.tag || '',
+        memo: row.memo || '',
+        workRelated: row.workRelated === 'TRUE' || row.workRelated === true,
+      });
+    } else if (type === 'receipt-item' || type === 'linked-item') {
+      const gid = row.groupId;
+      if (!groups[gid]) groups[gid] = { rows: [], type };
+      groups[gid].rows.push(row);
+    }
+  });
+
+  // Reconstruct receipt/linked groups
+  const grouped = Object.entries(groups).map(([gid, g]) => {
+    const first = g.rows[0];
+    const items = g.rows.map(r => ({
+      name: r.subCategory || '',
+      amount: parseFloat(r.amount) || 0,
+      unitAmount: parseFloat(r.amount) || 0,
+      qty: 1,
+      category: r.category,
+    }));
+    const total = items.reduce((a, i) => a + i.amount, 0);
+
+    if (g.type === 'receipt-item') {
+      return {
+        id: gid, type: 'receipt',
+        merchant: first.merchant, date: first.date,
+        total, items,
+        workRelated: first.workRelated === 'TRUE' || first.workRelated === true,
+      };
+    } else {
+      return {
+        id: gid, type: 'linked',
+        merchant: first.merchant, date: first.date,
+        amount: total, items,
+        category: first.category, subCategory: '',
+        tag: first.tag || '',
+        workRelated: first.workRelated === 'TRUE' || first.workRelated === true,
+      };
+    }
+  });
+
+  return [...singles, ...grouped].sort((a, b) => b.date.localeCompare(a.date));
+}
 let repYear  = new Date().getFullYear();
 let repMonth = new Date().getMonth();
 let repActiveCat = null; // null = All
@@ -2475,12 +2565,36 @@ const CAT_COLORS = {
 };
 
 function repPrevMonth() {
-  repMonth--; if(repMonth<0){repMonth=11;repYear--;} renderReport();
+  repMonth--; if(repMonth<0){repMonth=11;repYear--;} 
+  renderReport();
+  fetchMonthFromSheets(repYear, repMonth).then(sheetsData => {
+    if (sheetsData && sheetsData.length > 0) {
+      const other = S.expenses.filter(e => {
+        const d = new Date(e.date + 'T00:00:00');
+        return !(d.getFullYear() === repYear && d.getMonth() === repMonth);
+      });
+      S.expenses = [...sheetsData, ...other];
+      saveLocal();
+      renderReport();
+    }
+  });
 }
 function repNextMonth() {
   const now = new Date();
   if (repYear >= now.getFullYear() && repMonth >= now.getMonth()) return;
-  repMonth++; if(repMonth>11){repMonth=0;repYear++;} renderReport();
+  repMonth++; if(repMonth>11){repMonth=0;repYear++;}
+  renderReport();
+  fetchMonthFromSheets(repYear, repMonth).then(sheetsData => {
+    if (sheetsData && sheetsData.length > 0) {
+      const other = S.expenses.filter(e => {
+        const d = new Date(e.date + 'T00:00:00');
+        return !(d.getFullYear() === repYear && d.getMonth() === repMonth);
+      });
+      S.expenses = [...sheetsData, ...other];
+      saveLocal();
+      renderReport();
+    }
+  });
 }
 
 function setRepTab(tab) {
