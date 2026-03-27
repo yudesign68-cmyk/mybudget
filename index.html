@@ -2053,7 +2053,6 @@ async function handleScanFile(event, mode) {
   if (!file) return;
   event.target.value = '';
 
-  // Switch to review screen
   showReviewScreen(mode);
 
   const apiKey = localStorage.getItem('mb_anthropic_key');
@@ -2065,10 +2064,28 @@ async function handleScanFile(event, mode) {
   try {
     setReviewLoading(true, mode === 'bank' ? 'Reading bank screenshot…' : 'Reading receipt…');
 
-    // Convert image to JPEG via canvas (handles HEIC and any other format)
-    const { base64, mimeType } = await imageToJpegBase64(file);
+    // Step 1: Convert image
+    setReviewLoading(true, 'Step 1/3: Loading image…');
+    let base64, mimeType;
+    try {
+      const result = await imageToJpegBase64(file);
+      base64 = result.base64;
+      mimeType = result.mimeType;
+    } catch(e) {
+      throw new Error('Image load failed: ' + e.message);
+    }
 
-    const result = await callAnthropicVision(apiKey, base64, mimeType, mode);
+    // Step 2: Call API
+    setReviewLoading(true, 'Step 2/3: Calling AI…');
+    let result;
+    try {
+      result = await callAnthropicVision(apiKey, base64, mimeType, mode);
+    } catch(e) {
+      throw new Error('API call failed: ' + e.message);
+    }
+
+    // Step 3: Parse result
+    setReviewLoading(true, 'Step 3/3: Parsing result…');
     setReviewLoading(false);
 
     if (mode === 'bank') renderBankReview(result);
@@ -2076,7 +2093,7 @@ async function handleScanFile(event, mode) {
 
   } catch(err) {
     setReviewLoading(false);
-    showReviewError(err.message || 'Scan failed. Please try again.');
+    showReviewError(err.message || 'Unknown error');
   }
 }
 
