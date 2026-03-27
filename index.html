@@ -2051,15 +2051,11 @@ function triggerScan(mode) {
 async function handleScanFile(event, mode) {
   const file = event.target.files[0];
   if (!file) return;
-  event.target.value = ''; // reset so same file can be re-selected
+  event.target.value = '';
 
   // Switch to review screen
   showReviewScreen(mode);
 
-  // Convert image to base64
-  const base64 = await fileToBase64(file);
-
-  // Call Anthropic API
   const apiKey = localStorage.getItem('mb_anthropic_key');
   if (!apiKey) {
     showReviewError('No API key found. Please add your Anthropic API key in Settings.');
@@ -2068,7 +2064,11 @@ async function handleScanFile(event, mode) {
 
   try {
     setReviewLoading(true, mode === 'bank' ? 'Reading bank screenshot…' : 'Reading receipt…');
-    const result = await callAnthropicVision(apiKey, base64, file.type, mode);
+
+    // Convert image to JPEG via canvas (handles HEIC and any other format)
+    const { base64, mimeType } = await imageToJpegBase64(file);
+
+    const result = await callAnthropicVision(apiKey, base64, mimeType, mode);
     setReviewLoading(false);
 
     if (mode === 'bank') renderBankReview(result);
@@ -2080,12 +2080,29 @@ async function handleScanFile(event, mode) {
   }
 }
 
-function fileToBase64(file) {
+function imageToJpegBase64(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = () => reject(new Error('Could not read file'));
-    reader.readAsDataURL(file);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      // Cap at 1600px to reduce payload size
+      const MAX = 1600;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else       { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const base64 = dataUrl.split(',')[1];
+      resolve({ base64, mimeType: 'image/jpeg' });
+    };
+    img.onerror = () => reject(new Error('Could not load image. Please try another photo.'));
+    img.src = url;
   });
 }
 
