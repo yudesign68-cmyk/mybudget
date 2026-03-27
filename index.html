@@ -1829,6 +1829,7 @@ function goToExpInReport(expId, date) {
 
 function deleteExp(id) {
   S.expenses = S.expenses.filter(e => e.id !== id);
+  saveLocal();
   document.getElementById('modal-backdrop').classList.remove('open');
   document.getElementById('app').style.overflow = '';
   document.body.style.overflow = '';
@@ -2009,6 +2010,7 @@ function saveManual() {
   };
 
   S.expenses.unshift(expense);
+  saveLocal();
   syncToSheets(expense);
   showToast('Saved! 🎉');
   initManual();
@@ -2357,6 +2359,7 @@ function saveAllBank() {
       workRelated: autoWorkRelated(it.merchant, it.category, ''),
     };
     S.expenses.unshift(expense);
+    saveLocal();
     syncToSheets(expense);
   });
 
@@ -2443,6 +2446,7 @@ function saveReceipt() {
   };
 
   S.expenses.unshift(receipt);
+  saveLocal();
   syncToSheets(receipt);
   showToast('Receipt saved!');
   exitReview();
@@ -3092,8 +3096,30 @@ function autoWorkRelated(merchant, category, subCategory) {
 }
 
 /* ============================================================
-   GOOGLE SHEETS SYNC
+   LOCAL STORAGE — persist expenses & settings
    ============================================================ */
+const LS_KEY = 'mb_v5';
+
+function saveLocal() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      expenses: S.expenses,
+      budget:   S.budget,
+      zeroGoal: S.zeroGoal,
+    }));
+  } catch(e) { /* storage full — silent */ }
+}
+
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.expenses)) S.expenses = data.expenses;
+    if (data.budget)   S.budget   = data.budget;
+    if (data.zeroGoal) S.zeroGoal = data.zeroGoal;
+  } catch(e) { /* corrupt data — ignore */ }
+}
 function getSheetsUrl() {
   return localStorage.getItem('mb_sheets_url') || '';
 }
@@ -3222,6 +3248,7 @@ function saveSetting(type) {
   if (type === 'budget') {
     if (isNaN(val) || val <= 0) { showToast('Invalid amount', true); return; }
     S.budget = val;
+    saveLocal();
     document.getElementById('set-budget-val').textContent = fmtAmt(val).replace('.00','');
     closeModal();
     showToast('Budget updated!');
@@ -3230,6 +3257,7 @@ function saveSetting(type) {
     const n = Math.round(val);
     if (isNaN(n) || n < 1 || n > 31) { showToast('Please enter 1–31', true); return; }
     S.zeroGoal = n;
+    saveLocal();
     document.getElementById('set-goal-val').textContent = n;
     closeModal();
     showToast('Goal updated!');
@@ -3296,6 +3324,7 @@ function confirmResetAll() {
 
 function resetAllData() {
   S.expenses = [];
+  saveLocal();
   closeModal();
   goTo('home');
   showToast('All data cleared');
@@ -3310,6 +3339,9 @@ window.addEventListener('load', function() {
       'calc(64px + env(safe-area-inset-bottom, 0px))';
   }, 100);
 });
+
+// Load persisted data on startup
+loadLocal();
 
 // Amount blur state — blurred by default
 let amountBlurred = true;
