@@ -2126,7 +2126,11 @@ function imageToJpegBase64(file) {
 async function callAnthropicVision(apiKey, base64, mimeType, mode) {
   const CATS = ['Food','Transport','Bills','Shopping','Health and Beauty','Leisure','Fandom','Subscriptions','Gifts','Other'];
 
+  const TODAY = new Date().toISOString().split('T')[0];
+  const THIS_YEAR = new Date().getFullYear();
+
   const bankPrompt = `You are analysing a bank transaction screenshot (CommBank or ING).
+Today's date is ${TODAY}. If the year is not visible in the screenshot, assume it is ${THIS_YEAR}.
 Return ONLY a valid JSON array — no markdown, no explanation.
 Each item: {"date":"YYYY-MM-DD","amount":26.90,"merchant":"Name","category":"Food","note":""}
 
@@ -2149,6 +2153,7 @@ Category rules (use context, NOT bank label):
 Valid categories: ${CATS.join(', ')}`;
 
   const receiptPrompt = `You are analysing a paper receipt photo.
+Today's date is ${TODAY}. If the year is not visible, assume it is ${THIS_YEAR}.
 Return ONLY a valid JSON array — no markdown, no explanation.
 Each line item as a separate object: {"date":"YYYY-MM-DD","amount":3.50,"merchant":"Store","category":"Food","note":"Item name","qty":1}
 
