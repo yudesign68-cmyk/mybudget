@@ -1388,6 +1388,10 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json;bas
             <button onclick="testConnection()" style="flex:1;padding:10px;border-radius:var(--r8);background:var(--s2);border:1px solid var(--border);font-family:var(--font);font-size:13px;font-weight:600;color:var(--t1);cursor:pointer">Test connection</button>
             <button onclick="syncAll()" style="flex:1;padding:10px;border-radius:var(--r8);background:var(--s2);border:1px solid var(--border);font-family:var(--font);font-size:13px;font-weight:600;color:var(--t1);cursor:pointer">Sync all</button>
           </div>
+          <div style="height:10px"></div>
+          <button onclick="clearCredentials()" style="width:100%;padding:10px;border-radius:var(--r8);background:#FEF0EE;border:1.5px solid #F4C2B8;font-family:var(--font);font-size:13px;font-weight:600;color:var(--err);cursor:pointer">
+            Clear API key &amp; Sheets URL
+          </button>
           <div id="set-conn-status" style="margin-top:8px;font-size:12px;font-weight:600;display:none"></div>
         </div>
       </div>
@@ -1404,7 +1408,17 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json;bas
         </div>
         <svg id="danger-caret" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="width:16px;height:16px;color:var(--tm);transition:transform 0.2s"><path d="M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z"/></svg>
       </button>
-      <div id="danger-body" style="display:none;margin-top:8px;background:var(--surface);border-radius:var(--r16);border:1px solid #F4C2B8;overflow:hidden">
+      <div id="danger-body" style="display:none;margin-top:8px;background:var(--surface);border-radius:var(--r16);border:1px solid var(--border);overflow:hidden">
+        <!-- Restore from Sheets -->
+        <div style="padding:16px;border-bottom:1px solid var(--bl)">
+          <div style="font-size:15px;font-weight:600;color:var(--t1);margin-bottom:4px">Restore from Sheets</div>
+          <div style="font-size:12px;color:var(--tm);margin-bottom:12px">Load all data from Google Sheets — use this when switching to a new phone.</div>
+          <button onclick="restoreFromSheets()" style="width:100%;padding:12px;border-radius:var(--r12);background:#E8F5EE;border:1.5px solid #C8E0D4;font-family:var(--font);font-size:14px;font-weight:600;color:var(--grn);cursor:pointer">
+            Restore from Sheets
+          </button>
+          <div id="restore-status" style="margin-top:8px;font-size:12px;font-weight:600;display:none"></div>
+        </div>
+        <!-- Reset all data -->
         <button onclick="confirmResetAll()" style="width:100%;padding:16px;background:none;border:none;font-family:var(--font);font-size:15px;font-weight:600;color:var(--err);cursor:pointer;text-align:left;display:flex;align-items:center;gap:10px">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="width:18px;height:18px;flex-shrink:0"><path d="M216,48H180V36A28,28,0,0,0,152,8H104A28,28,0,0,0,76,36V48H40a12,12,0,0,0,0,24h4V208a20,20,0,0,0,20,20H192a20,20,0,0,0,20-20V72h4a12,12,0,0,0,0-24ZM100,36a4,4,0,0,1,4-4h48a4,4,0,0,1,4,4V48H100Zm88,168H68V72H188ZM116,104v64a12,12,0,0,1-24,0V104a12,12,0,0,1,24,0Zm48,0v64a12,12,0,0,1-24,0V104a12,12,0,0,1,24,0Z"/></svg>
           Reset all data
@@ -1589,20 +1603,7 @@ function _goTo(screen) {
     repYear = S.viewYear;
     repMonth = S.viewMonth;
     setRepTab(S.repTab || 'monthly');
-    renderReport(); // render with local data first
-    // Then try to fetch fresh data from Sheets
-    fetchMonthFromSheets(repYear, repMonth).then(sheetsData => {
-      if (sheetsData && sheetsData.length > 0) {
-        // Merge Sheets data into S.expenses (replace this month's data)
-        const otherMonths = S.expenses.filter(e => {
-          const d = new Date(e.date + 'T00:00:00');
-          return !(d.getFullYear() === repYear && d.getMonth() === repMonth);
-        });
-        S.expenses = [...sheetsData, ...otherMonths];
-        saveLocal();
-        renderReport(); // re-render with fresh Sheets data
-      }
-    });
+    renderReport();
   }
 }
 
@@ -2623,23 +2624,14 @@ async function fetchMonthFromSheets(year, month) {
     const cbName = 'mbcb_' + Date.now();
     const script = document.createElement('script');
     const timeout = setTimeout(() => {
-      delete window[cbName];
-      script.remove();
-      resolve(null);
+      delete window[cbName]; script.remove(); resolve(null);
     }, 8000);
-
     window[cbName] = function(data) {
-      clearTimeout(timeout);
-      delete window[cbName];
-      script.remove();
-      if (data && data.success) {
-        resolve(sheetsRowsToExpenses(data.expenses || []));
-      } else {
-        resolve(null);
-      }
+      clearTimeout(timeout); delete window[cbName]; script.remove();
+      if (data && data.success) resolve(sheetsRowsToExpenses(data.expenses || []));
+      else resolve(null);
     };
-
-    script.src = `${url}?action=getMonth&year=${year}&month=${month}&callback=${cbName}`;
+    script.src = `${url}?action=getMonth&year=${year}&month=${month+1}&callback=${cbName}`;
     script.onerror = () => { clearTimeout(timeout); delete window[cbName]; resolve(null); };
     document.head.appendChild(script);
   });
@@ -2716,36 +2708,12 @@ const CAT_COLORS = {
 };
 
 function repPrevMonth() {
-  repMonth--; if(repMonth<0){repMonth=11;repYear--;} 
-  renderReport();
-  fetchMonthFromSheets(repYear, repMonth).then(sheetsData => {
-    if (sheetsData && sheetsData.length > 0) {
-      const other = S.expenses.filter(e => {
-        const d = new Date(e.date + 'T00:00:00');
-        return !(d.getFullYear() === repYear && d.getMonth() === repMonth);
-      });
-      S.expenses = [...sheetsData, ...other];
-      saveLocal();
-      renderReport();
-    }
-  });
+  repMonth--; if(repMonth<0){repMonth=11;repYear--;} renderReport();
 }
 function repNextMonth() {
   const now = new Date();
   if (repYear >= now.getFullYear() && repMonth >= now.getMonth()) return;
-  repMonth++; if(repMonth>11){repMonth=0;repYear++;}
-  renderReport();
-  fetchMonthFromSheets(repYear, repMonth).then(sheetsData => {
-    if (sheetsData && sheetsData.length > 0) {
-      const other = S.expenses.filter(e => {
-        const d = new Date(e.date + 'T00:00:00');
-        return !(d.getFullYear() === repYear && d.getMonth() === repMonth);
-      });
-      S.expenses = [...sheetsData, ...other];
-      saveLocal();
-      renderReport();
-    }
-  });
+  repMonth++; if(repMonth>11){repMonth=0;repYear++;} renderReport();
 }
 
 function setRepTab(tab) {
@@ -3375,11 +3343,9 @@ function autoWorkRelated(merchant, category, subCategory) {
 const LS_KEY = 'mb_v5';
 
 function saveLocal() {
-  // Only save settings, not expenses (Sheets is the DB)
   try {
-    const existing = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     localStorage.setItem(LS_KEY, JSON.stringify({
-      ...existing,
+      expenses: S.expenses,
       budget:   S.budget,
       zeroGoal: S.zeroGoal,
     }));
@@ -3387,11 +3353,11 @@ function saveLocal() {
 }
 
 function loadLocal() {
-  // Only load settings from localStorage
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return;
     const data = JSON.parse(raw);
+    if (Array.isArray(data.expenses)) S.expenses = data.expenses;
     if (data.budget)   S.budget   = data.budget;
     if (data.zeroGoal) S.zeroGoal = data.zeroGoal;
   } catch(e) {}
@@ -3617,6 +3583,77 @@ async function testConnection() {
 }
 
 
+async function restoreFromSheets() {
+  const url = getSheetsUrl();
+  if (!url) { showToast('No Sheets URL set', true); return; }
+
+  const status = document.getElementById('restore-status');
+  status.style.display = 'block';
+  status.style.color = 'var(--tm)';
+  status.textContent = 'Connecting to Sheets…';
+
+  try {
+    const data = await new Promise((resolve) => {
+      const cbName = 'mbcb_restore_' + Date.now();
+      const script = document.createElement('script');
+      const timeout = setTimeout(() => {
+        delete window[cbName]; script.remove();
+        resolve(null);
+      }, 15000);
+      window[cbName] = function(d) {
+        clearTimeout(timeout); delete window[cbName]; script.remove();
+        resolve(d);
+      };
+      script.src = `${url}?action=getAll&callback=${cbName}`;
+      script.onerror = () => { clearTimeout(timeout); delete window[cbName]; resolve(null); };
+      document.head.appendChild(script);
+    });
+
+    if (!data || !data.success) {
+      status.style.color = 'var(--err)';
+      status.textContent = '✗ Could not connect to Sheets';
+      return;
+    }
+
+    const rows = data.expenses || [];
+    if (rows.length === 0) {
+      status.style.color = 'var(--tm)';
+      status.textContent = 'No data found in Sheets';
+      return;
+    }
+
+    // Convert all rows to expenses
+    const restored = sheetsRowsToExpenses(rows);
+    S.expenses = restored;
+    saveLocal();
+    renderHome();
+
+    status.style.color = 'var(--grn)';
+    status.textContent = `✓ Restored ${restored.length} expenses from Sheets!`;
+    showToast(`✓ ${restored.length} expenses restored!`);
+
+  } catch(e) {
+    status.style.color = 'var(--err)';
+    status.textContent = '✗ Restore failed — check your Sheets URL';
+  }
+}
+
+function clearCredentials() {
+  localStorage.removeItem('mb_anthropic_key');
+  localStorage.removeItem('mb_sheets_url');
+  // Update UI
+  document.getElementById('set-api-badge').textContent = 'Not set';
+  document.getElementById('set-api-badge').style.background = '#F5F3EE';
+  document.getElementById('set-api-badge').style.color = 'var(--tm)';
+  document.getElementById('set-api-input').value = '';
+  document.getElementById('set-api-input').placeholder = 'sk-ant-...';
+  document.getElementById('set-sheets-badge').textContent = 'Not set';
+  document.getElementById('set-sheets-badge').style.background = '#F5F3EE';
+  document.getElementById('set-sheets-badge').style.color = 'var(--tm)';
+  document.getElementById('set-sheets-input').value = '';
+  showToast('API key & Sheets URL cleared');
+}
+
 function confirmResetAll() {
   openModal(`
     <div style="text-align:center;padding:8px 0">
@@ -3652,17 +3689,8 @@ window.addEventListener('load', function() {
 // Load settings from localStorage on startup
 loadLocal();
 
-// Load expenses from Sheets on startup
-(async function initFromSheets() {
-  const now = new Date();
-  const sheetsData = await fetchMonthFromSheets(now.getFullYear(), now.getMonth());
-  if (sheetsData && sheetsData.length > 0) {
-    S.expenses = sheetsData;
-    renderHome();
-  }
-  // Auto-retry any pending items
-  autoRetryPending();
-})();
+// Auto-retry pending sync items on startup
+autoRetryPending();
 
 // Auto-retry when coming back online
 window.addEventListener('online', () => {
