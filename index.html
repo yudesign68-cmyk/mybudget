@@ -1681,19 +1681,28 @@ function renderHome() {
 
   list.innerHTML = recent.map(e => {
     const isTransfer = e.merchant === 'Transfer';
+    const isLinked = e.type === 'linked';
     const label = isTransfer ? `💸 ${e.memo || 'Transfer'}` : e.merchant;
     const sub = isTransfer
-      ? (e.memo ? '' : '') + fmtDate(e.date)
+      ? fmtDate(e.date)
       : `${e.category} · ${fmtDate(e.date)}`;
 
     return `
       <div class="exp-row" onclick="showExpDetail('${e.id}')">
         <div class="exp-icon">${CAT_EMOJI[e.category]||'📦'}</div>
         <div class="exp-info">
-          <div class="exp-merchant">${label}</div>
+          <div class="exp-merchant">${isLinked ? '🔗 ' : ''}${label}</div>
           <div class="exp-meta">${sub}</div>
         </div>
-        <div class="exp-amount">$${fmtAmt(expAmt(e))}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${e.type === 'single' && !isTransfer ? `
+            <button onclick="event.stopPropagation();showLinkModal('${e.id}')"
+              style="font-size:11px;font-weight:700;color:var(--grn);background:#E8F5EE;border:1px solid #C8E0D4;border-radius:20px;padding:3px 8px;cursor:pointer;font-family:var(--font);white-space:nowrap;-webkit-tap-highlight-color:transparent">
+              + Link
+            </button>
+          ` : ''}
+          <div class="exp-amount">$${fmtAmt(expAmt(e))}</div>
+        </div>
       </div>
     `;
   }).join('');
@@ -2276,10 +2285,12 @@ function catOptions(selected) {
 
 /* — BANK MODE — */
 function renderBankReview(items) {
-  reviewItems = items.map((it, i) => ({ ...it, _id: 'ri_' + i, _removed: false }));
+  reviewItems = items.map((it, i) => ({
+    ...it, _id: 'ri_' + i, _removed: false, _linkTarget: null
+  }));
 
-  // Duplicate detection
-  const dups = [];
+  // Duplicate detection — store matched expense for each review item
+  let dupFound = false;
   reviewItems.forEach(ri => {
     const match = S.expenses.find(e => {
       const dayDiff = Math.abs(new Date(e.date + 'T00:00:00') - new Date(ri.date + 'T00:00:00')) / 86400000;
@@ -2287,13 +2298,17 @@ function renderBankReview(items) {
       const merchantMatch = e.merchant.toLowerCase().includes(ri.merchant.toLowerCase().substring(0,4));
       return dayDiff <= 2 && amtDiff <= 2 && merchantMatch;
     });
-    if (match) dups.push(ri.merchant);
+    if (match) {
+      ri._linkTarget = match.id;
+      dupFound = true;
+    }
   });
 
-  if (dups.length > 0) {
+  if (dupFound) {
+    const dupNames = [...new Set(reviewItems.filter(r => r._linkTarget).map(r => r.merchant))];
     document.getElementById('review-dup-banner').style.display = 'block';
     document.getElementById('review-dup-msg').textContent =
-      `Possible duplicate: ${[...new Set(dups)].join(', ')} — already exists nearby. Check before saving.`;
+      `Possible duplicate: ${dupNames.join(', ')} — already exists nearby.`;
   }
 
   document.getElementById('review-bank-items').style.display = 'block';
@@ -2304,9 +2319,16 @@ function renderBankList() {
   const container = document.getElementById('review-bank-list');
   container.innerHTML = reviewItems.filter(it => !it._removed).map(it => {
     const isTransfer = it.merchant === 'Transfer';
+    const hasLink = !!it._linkTarget;
+    const linkMatch = hasLink ? S.expenses.find(e => e.id === it._linkTarget) : null;
     return `
-      <div id="card-${it._id}" style="background:var(--surface);border-radius:var(--r16);border:1.5px solid ${isTransfer ? 'var(--ybr)' : 'var(--border)'};padding:14px;position:relative">
+      <div id="card-${it._id}" style="background:var(--surface);border-radius:var(--r16);border:1.5px solid ${isTransfer ? 'var(--ybr)' : hasLink ? 'var(--grn)' : 'var(--border)'};padding:14px;position:relative">
         ${isTransfer ? `<div style="font-size:11px;font-weight:700;color:#8A5E00;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px">💸 Transfer</div>` : ''}
+        ${hasLink ? `<div style="font-size:11px;font-weight:700;color:var(--grn);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="width:12px;height:12px"><path d="M117.18,188.74a12,12,0,0,1,0,17l-5.12,5.12A58.26,58.26,0,0,1,70.6,228h0A58.62,58.62,0,0,1,29.14,127.92L63.89,93.17a58.64,58.64,0,0,1,98.56,28.11,12,12,0,1,1-23.37,5.44,34.65,34.65,0,0,0-58.22-16.58L46.11,144.89A34.62,34.62,0,0,0,70.57,204h0a34.41,34.41,0,0,0,24.49-10.14l5.11-5.12A12,12,0,0,1,117.18,188.74ZM226.83,45.17a58.65,58.65,0,0,0-82.93,0l-5.11,5.11a12,12,0,0,0,17,17l5.12-5.12a34.63,34.63,0,1,1,49,49L175.1,145.86A34.39,34.39,0,0,1,150.61,156h0a34.63,34.63,0,0,1-33.69-26.72,12,12,0,0,0-23.38,5.44A58.64,58.64,0,0,0,150.56,180h.05a58.28,58.28,0,0,0,41.47-17.17l34.75-34.75a58.62,58.62,0,0,0,0-82.91Z"/></svg>
+          Will link with: ${linkMatch ? linkMatch.merchant + ' $' + fmtAmt(expAmt(linkMatch)) : 'existing record'}
+          <button onclick="unlinkReviewItem('${it._id}')" style="margin-left:auto;font-size:10px;font-weight:600;color:var(--tm);background:none;border:none;cursor:pointer;font-family:var(--font)">Unlink</button>
+        </div>` : ''}
         <div style="display:flex;gap:10px;margin-bottom:10px">
           <div style="flex:1">
             <div style="font-size:11px;font-weight:600;color:var(--tm);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px">Amount</div>
@@ -2349,6 +2371,12 @@ function renderBankList() {
   }).join('');
 }
 
+function unlinkReviewItem(id) {
+  const item = reviewItems.find(it => it._id === id);
+  if (item) item._linkTarget = null;
+  renderBankList();
+}
+
 function updateReviewItem(id, field, value) {
   const item = reviewItems.find(it => it._id === id);
   if (!item) return;
@@ -2366,6 +2394,15 @@ function saveAllBank() {
   if (toSave.length === 0) { showToast('Nothing to save', true); return; }
 
   toSave.forEach(it => {
+    if (it._linkTarget) {
+      // Link with existing receipt/single
+      const target = S.expenses.find(e => e.id === it._linkTarget);
+      if (target) {
+        linkExpenses(it, target);
+        return;
+      }
+    }
+    // Normal save
     const expense = {
       id: 'e_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
       type: 'single',
@@ -2385,6 +2422,101 @@ function saveAllBank() {
 
   showToast(`${toSave.length} expense${toSave.length>1?'s':''} saved!`);
   exitReview();
+}
+
+// Link a bank item (from Review) with an existing expense (receipt or single)
+function linkExpenses(bankItem, targetExpense) {
+  // Build linked record
+  const linked = {
+    id: 'e_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
+    type: 'linked',
+    merchant: bankItem.merchant,
+    date: bankItem.date,          // bank date is authoritative
+    amount: bankItem.amount,      // bank amount is authoritative
+    category: targetExpense.type === 'receipt'
+      ? (targetExpense.items?.[0]?.category || bankItem.category)
+      : targetExpense.category,
+    subCategory: targetExpense.subCategory || '',
+    tag: bankItem.tag || targetExpense.tag || '',
+    memo: bankItem.note || targetExpense.memo || '',
+    items: targetExpense.type === 'receipt'
+      ? targetExpense.items
+      : [{ name: targetExpense.merchant, amount: targetExpense.amount, unitAmount: targetExpense.amount, qty: 1, category: targetExpense.category }],
+    workRelated: autoWorkRelated(bankItem.merchant, bankItem.category, ''),
+  };
+
+  // Remove original target expense
+  S.expenses = S.expenses.filter(e => e.id !== targetExpense.id);
+
+  // Add linked record
+  S.expenses.unshift(linked);
+  saveLocal();
+  syncToSheets(linked);
+}
+
+// Manual link — show modal to pick a receipt to link with
+function showLinkModal(singleId) {
+  const single = S.expenses.find(e => e.id === singleId);
+  if (!single) return;
+
+  // Find candidate receipts — same month, similar amount
+  const singleDate = new Date(single.date + 'T00:00:00');
+  const candidates = S.expenses.filter(e => {
+    if (e.id === singleId) return false;
+    if (e.type !== 'receipt' && e.type !== 'single') return false;
+    const d = new Date(e.date + 'T00:00:00');
+    const dayDiff = Math.abs(d - singleDate) / 86400000;
+    return dayDiff <= 30;
+  }).sort((a,b) => b.date.localeCompare(a.date));
+
+  if (candidates.length === 0) {
+    openModal(`
+      <div style="text-align:center;padding:16px 0">
+        <div style="font-size:36px;margin-bottom:12px">🔗</div>
+        <div style="font-size:17px;font-weight:700;color:var(--t1);margin-bottom:8px">No candidates found</div>
+        <div style="font-size:14px;color:var(--tm);margin-bottom:20px">No receipts within 30 days to link with.</div>
+        <button onclick="closeModal()" style="width:100%;padding:13px;border-radius:var(--r12);background:var(--s2);border:1.5px solid var(--border);font-family:var(--font);font-size:14px;font-weight:600;color:var(--t1);cursor:pointer">Close</button>
+      </div>
+    `);
+    return;
+  }
+
+  openModal(`
+    <div>
+      <div style="font-size:17px;font-weight:700;color:var(--t1);margin-bottom:4px">Link with receipt</div>
+      <div style="font-size:13px;color:var(--tm);margin-bottom:16px">
+        Bank: <strong>${single.merchant}</strong> $${fmtAmt(single.amount)} · ${fmtDate(single.date)}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto">
+        ${candidates.map(c => `
+          <button onclick="confirmManualLink('${singleId}','${c.id}')"
+            style="width:100%;padding:14px;border-radius:var(--r12);background:var(--s2);border:1.5px solid var(--border);font-family:var(--font);cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent">
+            <div style="font-size:14px;font-weight:700;color:var(--t1)">${c.merchant}</div>
+            <div style="font-size:12px;color:var(--tm);margin-top:3px">
+              $${fmtAmt(expAmt(c))} · ${fmtDate(c.date)} · ${c.type}
+            </div>
+          </button>
+        `).join('')}
+      </div>
+      <div style="height:12px"></div>
+      <button onclick="closeModal()" style="width:100%;padding:13px;border-radius:var(--r12);background:var(--s2);border:1.5px solid var(--border);font-family:var(--font);font-size:14px;font-weight:600;color:var(--tm);cursor:pointer">Cancel</button>
+    </div>
+  `);
+}
+
+function confirmManualLink(singleId, targetId) {
+  const single = S.expenses.find(e => e.id === singleId);
+  const target = S.expenses.find(e => e.id === targetId);
+  if (!single || !target) return;
+
+  // Bank item is the single (use its amount/date)
+  const bankItem = { amount: single.amount, merchant: single.merchant, date: single.date, category: single.category, tag: single.tag, note: single.memo };
+  S.expenses = S.expenses.filter(e => e.id !== singleId);
+  linkExpenses(bankItem, target);
+
+  closeModal();
+  renderHome();
+  showToast('🔗 Linked!');
 }
 
 /* — RECEIPT MODE — */
@@ -2487,18 +2619,30 @@ function exitReview() {
 async function fetchMonthFromSheets(year, month) {
   const url = getSheetsUrl();
   if (!url) return null;
-  try {
-    const res = await fetch(`${url}?action=getMonth&year=${year}&month=${month}`, {
-      method: 'GET', mode: 'cors'
-    });
-    const data = await res.json();
-    if (!data.success) return null;
+  return new Promise((resolve) => {
+    const cbName = 'mbcb_' + Date.now();
+    const script = document.createElement('script');
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      script.remove();
+      resolve(null);
+    }, 8000);
 
-    // Convert Sheets rows back to S.expenses format
-    return sheetsRowsToExpenses(data.expenses || []);
-  } catch(e) {
-    return null;
-  }
+    window[cbName] = function(data) {
+      clearTimeout(timeout);
+      delete window[cbName];
+      script.remove();
+      if (data && data.success) {
+        resolve(sheetsRowsToExpenses(data.expenses || []));
+      } else {
+        resolve(null);
+      }
+    };
+
+    script.src = `${url}?action=getMonth&year=${year}&month=${month}&callback=${cbName}`;
+    script.onerror = () => { clearTimeout(timeout); delete window[cbName]; resolve(null); };
+    document.head.appendChild(script);
+  });
 }
 
 function sheetsRowsToExpenses(rows) {
@@ -2867,14 +3011,23 @@ function renderAllExpenses() {
         <div id="date-group-${date}" style="background:var(--surface);border-radius:var(--r16);border:1px solid var(--border);overflow:hidden">
           ${dayExps.map(e => {
             const isTransfer = e.merchant === 'Transfer';
+            const isLinked = e.type === 'linked';
             return `
               <div class="exp-row" id="exp-row-${e.id}" onclick="showExpDetail('${e.id}')">
                 <div class="exp-icon">${CAT_EMOJI[e.category]||'📦'}</div>
                 <div class="exp-info">
-                  <div class="exp-merchant">${isTransfer?'💸 ':''}${e.merchant}</div>
+                  <div class="exp-merchant">${isLinked?'🔗 ':''}${isTransfer?'💸 ':''}${e.merchant}</div>
                   <div class="exp-meta">${e.category}${e.subCategory?' · '+e.subCategory:''}</div>
                 </div>
-                <div class="exp-amount">$${fmtAmt(expAmt(e))}</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  ${e.type === 'single' && !isTransfer ? `
+                    <button onclick="event.stopPropagation();showLinkModal('${e.id}')"
+                      style="font-size:11px;font-weight:700;color:var(--grn);background:#E8F5EE;border:1px solid #C8E0D4;border-radius:20px;padding:3px 8px;cursor:pointer;font-family:var(--font);white-space:nowrap;-webkit-tap-highlight-color:transparent">
+                      + Link
+                    </button>
+                  ` : ''}
+                  <div class="exp-amount">$${fmtAmt(expAmt(e))}</div>
+                </div>
               </div>
             `;
           }).join('')}
@@ -3217,93 +3370,128 @@ function autoWorkRelated(merchant, category, subCategory) {
 }
 
 /* ============================================================
-   LOCAL STORAGE — persist expenses & settings
+   LOCAL STORAGE — pending queue only (no expenses)
    ============================================================ */
 const LS_KEY = 'mb_v5';
 
 function saveLocal() {
+  // Only save settings, not expenses (Sheets is the DB)
   try {
+    const existing = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     localStorage.setItem(LS_KEY, JSON.stringify({
-      expenses: S.expenses,
+      ...existing,
       budget:   S.budget,
       zeroGoal: S.zeroGoal,
     }));
-  } catch(e) { /* storage full — silent */ }
+  } catch(e) {}
 }
 
 function loadLocal() {
+  // Only load settings from localStorage
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return;
     const data = JSON.parse(raw);
-    if (Array.isArray(data.expenses)) S.expenses = data.expenses;
     if (data.budget)   S.budget   = data.budget;
     if (data.zeroGoal) S.zeroGoal = data.zeroGoal;
-  } catch(e) { /* corrupt data — ignore */ }
+  } catch(e) {}
+}
+
+function addPending(expense) {
+  try {
+    const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
+    if (!pending.find(e => e.id === expense.id)) {
+      pending.push(expense);
+      localStorage.setItem('mb_pending', JSON.stringify(pending));
+    }
+  } catch(e) {}
+}
+
+function removePending(id) {
+  try {
+    const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
+    localStorage.setItem('mb_pending', JSON.stringify(pending.filter(e => e.id !== id)));
+  } catch(e) {}
+}
+
+function getPending() {
+  try {
+    return JSON.parse(localStorage.getItem('mb_pending') || '[]');
+  } catch(e) { return []; }
 }
 function getSheetsUrl() {
   return localStorage.getItem('mb_sheets_url') || '';
 }
 
-// GAS doesn't support CORS for POST from browser
-// Use GET with params + no-cors mode for writes
 async function syncToSheets(expense) {
   const url = getSheetsUrl();
   if (!url) return;
-
   try {
-    const params = new URLSearchParams({
-      action: 'addExpense',
-      data: JSON.stringify(expense)
-    });
-    // Use no-cors — we won't get response body but request goes through
-    await fetch(`${url}?${params.toString()}`, {
-      method: 'GET',
-      mode: 'no-cors',
-    });
+    const params = new URLSearchParams({ action: 'addExpense', data: JSON.stringify(expense) });
+    await fetch(`${url}?${params.toString()}`, { method: 'GET', mode: 'no-cors' });
     removePending(expense.id);
   } catch(err) {
     addPending(expense);
-    showToast('⚠️ Sheets sync failed — saved locally', true);
+    showToast('⚠️ Saved locally — will sync when online', true);
   }
 }
 
 function addPending(expense) {
-  const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
-  if (!pending.find(e => e.id === expense.id)) {
-    pending.push(expense);
-    localStorage.setItem('mb_pending', JSON.stringify(pending));
-  }
+  try {
+    const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
+    if (!pending.find(e => e.id === expense.id)) {
+      pending.push(expense);
+      localStorage.setItem('mb_pending', JSON.stringify(pending));
+    }
+  } catch(e) {}
 }
 
 function removePending(id) {
-  const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
-  localStorage.setItem('mb_pending', JSON.stringify(pending.filter(e => e.id !== id)));
+  try {
+    const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
+    localStorage.setItem('mb_pending', JSON.stringify(pending.filter(e => e.id !== id)));
+  } catch(e) {}
+}
+
+function getPending() {
+  try { return JSON.parse(localStorage.getItem('mb_pending') || '[]'); }
+  catch(e) { return []; }
 }
 
 async function syncAll() {
   const url = getSheetsUrl();
   if (!url) { showToast('No Sheets URL set', true); return; }
-
-  const pending = JSON.parse(localStorage.getItem('mb_pending') || '[]');
+  const pending = getPending();
   if (pending.length === 0) { showToast('All synced! ✓'); return; }
-
   showToast(`Syncing ${pending.length} item${pending.length>1?'s':''}…`);
   let success = 0;
-
   for (const expense of pending) {
     try {
-      const params = new URLSearchParams({
-        action: 'addExpense',
-        data: JSON.stringify(expense)
-      });
+      const params = new URLSearchParams({ action: 'addExpense', data: JSON.stringify(expense) });
       await fetch(`${url}?${params.toString()}`, { method: 'GET', mode: 'no-cors' });
       removePending(expense.id);
       success++;
-    } catch(e) { /* keep in pending */ }
+    } catch(e) {}
   }
-
   showToast(success > 0 ? `✓ ${success} items synced!` : '⚠️ Sync failed, try again');
+}
+
+async function autoRetryPending() {
+  const pending = getPending();
+  if (pending.length === 0) return;
+  const url = getSheetsUrl();
+  if (!url) return;
+  for (const expense of pending) {
+    try {
+      const params = new URLSearchParams({ action: 'addExpense', data: JSON.stringify(expense) });
+      await fetch(`${url}?${params.toString()}`, { method: 'GET', mode: 'no-cors' });
+      removePending(expense.id);
+    } catch(e) {}
+  }
+  const remaining = getPending();
+  if (remaining.length === 0 && pending.length > 0) {
+    showToast(`✓ ${pending.length} pending item${pending.length>1?'s':''} synced!`);
+  }
 }
 function toggleSection(id) {
   const body  = document.getElementById(id + '-body');
@@ -3461,8 +3649,26 @@ window.addEventListener('load', function() {
   }, 100);
 });
 
-// Load persisted data on startup
+// Load settings from localStorage on startup
 loadLocal();
+
+// Load expenses from Sheets on startup
+(async function initFromSheets() {
+  const now = new Date();
+  const sheetsData = await fetchMonthFromSheets(now.getFullYear(), now.getMonth());
+  if (sheetsData && sheetsData.length > 0) {
+    S.expenses = sheetsData;
+    renderHome();
+  }
+  // Auto-retry any pending items
+  autoRetryPending();
+})();
+
+// Auto-retry when coming back online
+window.addEventListener('online', () => {
+  autoRetryPending();
+  showToast('Back online — syncing…');
+});
 
 // Amount blur state — blurred by default
 let amountBlurred = true;
