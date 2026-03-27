@@ -77,6 +77,8 @@ body {
   min-height: 100dvh;
   background: var(--bg);
   overflow-x: hidden;
+  /* Reserve space for fixed nav at bottom */
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ============================================================
@@ -85,8 +87,7 @@ body {
 .screen {
   display: none;
   width: 100%;
-  min-height: 100dvh;
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 16px);
+  padding-bottom: 16px;
   animation: fadeIn 0.18s ease;
 }
 .screen.active { display: block; }
