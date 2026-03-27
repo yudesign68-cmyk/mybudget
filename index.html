@@ -2082,27 +2082,27 @@ async function handleScanFile(event, mode) {
 
 function imageToJpegBase64(file) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = function() {
-      const canvas = document.createElement('canvas');
-      // Cap at 1600px to reduce payload size
-      const MAX = 1600;
-      let w = img.width, h = img.height;
-      if (w > MAX || h > MAX) {
-        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-        else       { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      const base64 = dataUrl.split(',')[1];
-      resolve({ base64, mimeType: 'image/jpeg' });
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read image file.'));
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not load image. Please try another photo.'));
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const MAX = 1600;
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else       { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      };
+      img.src = e.target.result;
     };
-    img.onerror = () => reject(new Error('Could not load image. Please try another photo.'));
-    img.src = url;
+    reader.readAsDataURL(file);
   });
 }
 
