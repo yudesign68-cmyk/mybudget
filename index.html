@@ -1541,7 +1541,34 @@ const CAT_EMOJI = {
    ============================================================ */
 const NAV_IDS = ['home','report','challenge','settings'];
 
+function hasUnsavedManual() {
+  if (S.currentScreen !== 'add') return false;
+  const amt = document.getElementById('man-amount')?.value;
+  const merchant = document.getElementById('man-merchant')?.value;
+  const memo = document.getElementById('man-memo')?.value;
+  return !!(amt || (merchant && merchant !== 'Transfer') || memo || manState.cat);
+}
+
 function goTo(screen) {
+  // Check unsaved manual entry
+  if (S.currentScreen === 'add' && screen !== 'add' && hasUnsavedManual()) {
+    openModal(`
+      <div style="text-align:center;padding:8px 0">
+        <div style="font-size:36px;margin-bottom:12px">✏️</div>
+        <div style="font-size:17px;font-weight:700;color:var(--t1);margin-bottom:8px">You have unsaved changes</div>
+        <div style="font-size:14px;color:var(--tm);margin-bottom:24px">If you leave now, your input will be lost.</div>
+        <div style="display:flex;gap:10px">
+          <button onclick="closeModal()" style="flex:1;padding:13px;border-radius:var(--r12);background:var(--s2);border:1.5px solid var(--border);font-family:var(--font);font-size:14px;font-weight:600;color:var(--t1);cursor:pointer">Keep editing</button>
+          <button onclick="closeModal();_goTo('${screen}')" style="flex:1;padding:13px;border-radius:var(--r12);background:#FEF0EE;border:1.5px solid #F4C2B8;font-family:var(--font);font-size:14px;font-weight:600;color:var(--err);cursor:pointer">Leave</button>
+        </div>
+      </div>
+    `);
+    return;
+  }
+  _goTo(screen);
+}
+
+function _goTo(screen) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
@@ -2374,7 +2401,7 @@ function saveReceipt() {
 function exitReview() {
   document.getElementById('nav').style.display = 'flex';
   document.getElementById('screen-review').style.display = 'none';
-  goTo('home');
+  _goTo('home');
 }
 
 /* ============================================================
