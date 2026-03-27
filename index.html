@@ -2196,7 +2196,16 @@ Valid categories: ${CATS.join(', ')}`;
   const data = await response.json();
   const text = data.content.map(b => b.text || '').join('');
   const cleaned = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(cleaned);
+  const parsed = JSON.parse(cleaned);
+
+  // Force current year on all dates — AI often guesses wrong year
+  const thisYear = new Date().getFullYear();
+  return parsed.map(item => {
+    if (item.date && typeof item.date === 'string') {
+      item.date = item.date.replace(/^\d{4}/, thisYear);
+    }
+    return item;
+  });
 }
 
 /* ============================================================
