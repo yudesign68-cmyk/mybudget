@@ -1843,6 +1843,13 @@ function goToExpInReport(expId, date) {
 function deleteExp(id) {
   S.expenses = S.expenses.filter(e => e.id !== id);
   saveLocal();
+  // Sync deletion to Sheets
+  const url = getSheetsUrl();
+  if (url) {
+    fetch(`${url}?action=deleteExpense&id=${encodeURIComponent(id)}`, {
+      method: 'GET', mode: 'no-cors'
+    }).catch(() => {}); // silent fail — local delete already done
+  }
   document.getElementById('modal-backdrop').classList.remove('open');
   document.getElementById('app').style.overflow = '';
   document.body.style.overflow = '';
