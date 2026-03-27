@@ -2182,8 +2182,10 @@ Valid categories: ${CATS.join(', ')}`;
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error ${response.status}`);
+    const errText = await response.text().catch(() => '');
+    let errMsg = `HTTP ${response.status}`;
+    try { errMsg += ': ' + JSON.parse(errText).error?.message; } catch(e) {}
+    throw new Error(errMsg);
   }
 
   const data = await response.json();
