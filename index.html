@@ -104,7 +104,7 @@ body {
   position: fixed;
   bottom: 0;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateZ(0);
   width: 100%;
   max-width: 430px;
   background: var(--surface);
@@ -115,6 +115,9 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
   z-index: 100;
   box-shadow: 0 -1px 0 var(--border), 0 -8px 24px rgba(0,0,0,0.05);
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .nav-btn {
@@ -3217,6 +3220,17 @@ function resetAllData() {
   goTo('home');
   showToast('All data cleared');
 }
+// iOS PWA safe area fix — force nav reflow after load
+window.addEventListener('load', function() {
+  setTimeout(function() {
+    const nav = document.getElementById('nav');
+    if (nav) { nav.style.display='none'; nav.offsetHeight; nav.style.display='flex'; }
+    // Also force app padding recalc
+    document.getElementById('app').style.paddingBottom = 
+      'calc(64px + env(safe-area-inset-bottom, 0px))';
+  }, 100);
+});
+
 // Amount blur state — blurred by default
 let amountBlurred = true;
 
