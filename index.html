@@ -3622,15 +3622,24 @@ async function restoreFromSheets() {
       return;
     }
 
-    // Convert all rows to expenses
+    // Merge: combine Sheets data with existing local data by id
     const restored = sheetsRowsToExpenses(rows);
-    S.expenses = restored;
+    const localIds = new Set(S.expenses.map(e => e.id));
+    const sheetsIds = new Set(restored.map(e => e.id));
+
+    // Keep local items not in Sheets + all Sheets items
+    const localOnly = S.expenses.filter(e => !sheetsIds.has(e.id));
+    const merged = [...restored, ...localOnly]
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    S.expenses = merged;
     saveLocal();
     renderHome();
 
+    const newCount = restored.filter(e => !localIds.has(e.id)).length;
     status.style.color = 'var(--grn)';
-    status.textContent = `✓ Restored ${restored.length} expenses from Sheets!`;
-    showToast(`✓ ${restored.length} expenses restored!`);
+    status.textContent = `✓ Merged! ${newCount} new from Sheets, ${localOnly.length} local kept.`;
+    showToast(`✓ Merged ${merged.length} expenses!`);
 
   } catch(e) {
     status.style.color = 'var(--err)';
