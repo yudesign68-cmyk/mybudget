@@ -812,7 +812,7 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json;bas
       </div>
       <div class="nospend-strip-info">
         <div class="nospend-strip-title">No-Spend Challenge</div>
-        <div class="nospend-strip-sub" id="home-streak">3 day streak · 5 days this month</div>
+        <div class="nospend-strip-sub" id="home-streak">Loading…</div>
       </div>
       <div class="nospend-strip-arrow">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M184.49,136.49l-80,80a12,12,0,0,1-17-17L159,128,87.51,56.49a12,12,0,1,1,17-17l80,80A12,12,0,0,1,184.49,136.49Z"/></svg>
@@ -956,7 +956,7 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json;bas
         <!-- Note -->
         <div style="margin-bottom:20px">
           <label class="form-label">Note</label>
-          <input id="man-memo" type="text" placeholder="Optional note" class="form-input" style="font-size:15px" id="man-memo">
+          <input id="man-memo" type="text" placeholder="Optional note" class="form-input" style="font-size:15px">
         </div>
 
         <!-- Category chips -->
@@ -1650,6 +1650,40 @@ function renderHome() {
   const badge = document.querySelector('.badge-yel');
   if (badge) badge.textContent = Math.round(pct) + '% used';
 
+  // No-Spend strip stats
+  const todayStr = new Date().toISOString().split('T')[0];
+  const spendDays = new Set(S.expenses.map(e => e.date));
+
+  // startDate = first expense date (no tracking before this)
+  const startDate = S.expenses.length
+    ? S.expenses.reduce((a,e) => e.date < a ? e.date : a, todayStr)
+    : todayStr;
+
+  // Current streak (stop at startDate to prevent infinite loop)
+  let streak = 0;
+  const sd = new Date();
+  while (true) {
+    const s = sd.toISOString().split('T')[0];
+    if (s < startDate) break; // don't go before tracking started
+    if (s > todayStr) { sd.setDate(sd.getDate()-1); continue; }
+    if (!spendDays.has(s)) { streak++; sd.setDate(sd.getDate()-1); }
+    else break;
+  }
+
+  // This month no-spend days (only from startDate onwards)
+  const daysInMonth = new Date(S.viewYear, S.viewMonth+1, 0).getDate();
+  let monthNoSpend = 0;
+  for (let i=1; i<=daysInMonth; i++) {
+    const s = `${S.viewYear}-${String(S.viewMonth+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+    if (s >= startDate && s <= todayStr && !spendDays.has(s)) monthNoSpend++;
+  }
+  const streakEl = document.getElementById('home-streak');
+  if (streakEl) {
+    streakEl.textContent = streak > 0
+      ? `${streak} day streak · ${monthNoSpend} days this month`
+      : `${monthNoSpend} no-spend days this month`;
+  }
+
   // Category totals
   const tots = {};
   exps.forEach(e => {
@@ -1728,9 +1762,49 @@ function closeModal(e) {
 }
 
 function editExp(id) {
-  // Placeholder until Add screen is built
+  const exp = S.expenses.find(e => e.id === id);
+  if (!exp || exp.type === 'linked' || exp.type === 'receipt') {
+    showToast('Edit not available for this type');
+    return;
+  }
   closeModal();
-  showToast('Edit — Add 화면 완성 후 연결됩니다');
+  goTo('add');
+
+  // Switch to manual tab
+  setTimeout(() => {
+    // Activate manual tab
+    document.querySelectorAll('.add-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.add-tab-pane').forEach(p => p.style.display = 'none');
+    const manBtn = document.querySelector('[onclick*="switchAddTab(\'manual\')"]');
+    const manPane = document.getElementById('add-tab-manual');
+    if (manBtn) manBtn.classList.add('active');
+    if (manPane) manPane.style.display = 'block';
+
+    // Fill in existing values
+    document.getElementById('man-amount').value = exp.amount;
+    document.getElementById('man-merchant').value = exp.merchant || '';
+    document.getElementById('man-date').value = exp.date;
+    document.getElementById('man-memo').value = exp.memo || '';
+
+    // Set Transfer mode if needed
+    if (exp.merchant === 'Transfer') {
+      const transferBtn = document.getElementById('man-transfer-btn');
+      if (transferBtn && !manState.isTransfer) transferBtn.click();
+    }
+
+    // Set category
+    if (exp.category) {
+      manState.cat = exp.category;
+      manState.sub = exp.subCategory || '';
+      manState.tags = exp.tag ? exp.tag.split(',').map(t=>t.trim()).filter(Boolean) : [];
+      renderManualChips();
+    }
+
+    // Change Save button to Update and store edit id
+    manState.editId = exp.id;
+    const saveBtn = document.getElementById('man-save-btn');
+    if (saveBtn) saveBtn.textContent = 'Update it!';
+  }, 100);
 }
 
 function confirmDelete(id) {
@@ -1900,11 +1974,12 @@ let manState = {
   subCat: null,
   tags: [],
   isTransfer: false,
+  editId: null,
 };
 
 function initManual() {
   // Reset state
-  manState = { cat: null, subCat: null, tags: [], isTransfer: false };
+  manState = { cat: null, subCat: null, tags: [], isTransfer: false, editId: null };
 
   // Reset fields
   document.getElementById('man-amount').value = '';
@@ -2026,23 +2101,45 @@ function saveManual() {
   if (!date) { showToast('Please select a date', true); return; }
   if (!manState.cat) { showToast('Please select a category', true); return; }
 
-  const expense = {
-    id: 'e_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
-    type: 'single',
-    amount: amtRaw,
-    merchant: merchant || 'Unknown',
-    date,
-    category: manState.cat,
-    subCategory: manState.subCat || '',
-    tag: manState.isTransfer ? '' : manState.tags.join(', '),
-    memo,
-    workRelated: manState.isTransfer ? false : autoWorkRelated(merchant, manState.cat, manState.subCat || ''),
-  };
+  if (manState.editId) {
+    // Edit mode — update existing expense
+    const idx = S.expenses.findIndex(e => e.id === manState.editId);
+    if (idx !== -1) {
+      S.expenses[idx] = {
+        ...S.expenses[idx],
+        amount: amtRaw,
+        merchant: merchant || 'Unknown',
+        date,
+        category: manState.cat,
+        subCategory: manState.subCat || '',
+        tag: manState.isTransfer ? '' : manState.tags.join(', '),
+        memo,
+        workRelated: manState.isTransfer ? false : autoWorkRelated(merchant, manState.cat, manState.subCat || ''),
+      };
+      saveLocal();
+      syncToSheets(S.expenses[idx]);
+      showToast('Updated! ✅');
+    }
+  } else {
+    // New expense
+    const expense = {
+      id: 'e_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
+      type: 'single',
+      amount: amtRaw,
+      merchant: merchant || 'Unknown',
+      date,
+      category: manState.cat,
+      subCategory: manState.subCat || '',
+      tag: manState.isTransfer ? '' : manState.tags.join(', '),
+      memo,
+      workRelated: manState.isTransfer ? false : autoWorkRelated(merchant, manState.cat, manState.subCat || ''),
+    };
+    S.expenses.unshift(expense);
+    saveLocal();
+    syncToSheets(expense);
+    showToast('Saved! 🎉');
+  }
 
-  S.expenses.unshift(expense);
-  saveLocal();
-  syncToSheets(expense);
-  showToast('Saved! 🎉');
   initManual();
   goTo('home');
 }
@@ -2514,6 +2611,7 @@ function confirmManualLink(singleId, targetId) {
   const bankItem = { amount: single.amount, merchant: single.merchant, date: single.date, category: single.category, tag: single.tag, note: single.memo };
   S.expenses = S.expenses.filter(e => e.id !== singleId);
   linkExpenses(bankItem, target);
+  saveLocal();
 
   closeModal();
   renderHome();
@@ -3593,25 +3691,42 @@ async function restoreFromSheets() {
   status.textContent = 'Connecting to Sheets…';
 
   try {
+    // Try fetch with no-cors first to test connectivity, then JSONP
     const data = await new Promise((resolve) => {
       const cbName = 'mbcb_restore_' + Date.now();
       const script = document.createElement('script');
       const timeout = setTimeout(() => {
-        delete window[cbName]; script.remove();
+        delete window[cbName];
+        script.remove();
         resolve(null);
-      }, 15000);
+      }, 12000);
+
       window[cbName] = function(d) {
-        clearTimeout(timeout); delete window[cbName]; script.remove();
+        clearTimeout(timeout);
+        delete window[cbName];
+        script.remove();
         resolve(d);
       };
+
       script.src = `${url}?action=getAll&callback=${cbName}`;
-      script.onerror = () => { clearTimeout(timeout); delete window[cbName]; resolve(null); };
+      script.onerror = () => {
+        clearTimeout(timeout);
+        delete window[cbName];
+        script.remove();
+        resolve(null);
+      };
       document.head.appendChild(script);
     });
 
-    if (!data || !data.success) {
+    if (!data) {
       status.style.color = 'var(--err)';
-      status.textContent = '✗ Could not connect to Sheets';
+      status.textContent = '✗ Could not connect to Sheets. Try opening this URL in Safari first: ' + url + '?action=ping';
+      return;
+    }
+
+    if (!data.success) {
+      status.style.color = 'var(--err)';
+      status.textContent = '✗ Sheets returned an error';
       return;
     }
 
@@ -3622,28 +3737,37 @@ async function restoreFromSheets() {
       return;
     }
 
-    // Merge: combine Sheets data with existing local data by id
-    const restored = sheetsRowsToExpenses(rows);
-    const localIds = new Set(S.expenses.map(e => e.id));
-    const sheetsIds = new Set(restored.map(e => e.id));
+    // Convert rows — only valid ones with proper date format
+    const restored = sheetsRowsToExpenses(rows).filter(e =>
+      e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && e.amount > 0
+    );
 
-    // Keep local items not in Sheets + all Sheets items
+    if (restored.length === 0) {
+      status.style.color = 'var(--err)';
+      status.textContent = '✗ Data found but could not parse — check date format (YYYY-MM-DD)';
+      return;
+    }
+
+    // Safe merge: keep local items not in Sheets, add Sheets items
+    const sheetsIds = new Set(restored.map(e => e.id));
     const localOnly = S.expenses.filter(e => !sheetsIds.has(e.id));
     const merged = [...restored, ...localOnly]
       .sort((a, b) => b.date.localeCompare(a.date));
 
+    // Only update if we got meaningful data
     S.expenses = merged;
     saveLocal();
     renderHome();
 
-    const newCount = restored.filter(e => !localIds.has(e.id)).length;
+    const newCount = restored.filter(e => !new Set(S.expenses.map(x=>x.id)).has(e.id)).length;
     status.style.color = 'var(--grn)';
-    status.textContent = `✓ Merged! ${newCount} new from Sheets, ${localOnly.length} local kept.`;
-    showToast(`✓ Merged ${merged.length} expenses!`);
+    status.textContent = `✓ Merged! ${restored.length} from Sheets, ${localOnly.length} local kept.`;
+    showToast(`✓ ${merged.length} expenses merged!`);
 
   } catch(e) {
+    // CRITICAL: never clear data on error
     status.style.color = 'var(--err)';
-    status.textContent = '✗ Restore failed — check your Sheets URL';
+    status.textContent = '✗ Restore failed — your data is safe, nothing was changed.';
   }
 }
 
@@ -3684,16 +3808,34 @@ function resetAllData() {
   goTo('home');
   showToast('All data cleared');
 }
-// iOS PWA safe area fix — force nav reflow after load
+// iOS PWA safe area fix
+function fixNavHeight() {
+  const nav = document.getElementById('nav');
+  const app = document.getElementById('app');
+  if (!nav || !app) return;
+  // Read computed safe area via CSS env()
+  const testEl = document.createElement('div');
+  testEl.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);width:0;visibility:hidden';
+  document.body.appendChild(testEl);
+  const safeBottom = testEl.getBoundingClientRect().height || 0;
+  document.body.removeChild(testEl);
+
+  const navH = 64 + safeBottom;
+  nav.style.height = navH + 'px';
+  nav.style.paddingBottom = safeBottom + 'px';
+  app.style.paddingBottom = navH + 'px';
+}
+
 window.addEventListener('load', function() {
-  setTimeout(function() {
-    const nav = document.getElementById('nav');
-    if (nav) { nav.style.display='none'; nav.offsetHeight; nav.style.display='flex'; }
-    // Also force app padding recalc
-    document.getElementById('app').style.paddingBottom = 
-      'calc(64px + env(safe-area-inset-bottom, 0px))';
-  }, 100);
+  fixNavHeight();
+  setTimeout(fixNavHeight, 100);
+  setTimeout(fixNavHeight, 500);
 });
+window.addEventListener('resize', fixNavHeight);
+
+// Always start on current month
+S.viewYear = new Date().getFullYear();
+S.viewMonth = new Date().getMonth();
 
 // Load settings from localStorage on startup
 loadLocal();
