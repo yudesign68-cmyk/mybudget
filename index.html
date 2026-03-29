@@ -2737,6 +2737,25 @@ async function fetchMonthFromSheets(year, month) {
   return sheetsRowsToExpenses(data.expenses || []);
 }
 
+function normalizeDate(val) {
+  if (!val) return '';
+  const s = String(val);
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // ISO string like 2026-03-19T13:00:00.000Z — extract date part in local time
+  if (s.includes('T')) {
+    const d = new Date(s);
+    if (!isNaN(d)) {
+      // Use UTC date to avoid timezone shift
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  }
+  return s;
+}
+
 function sheetsRowsToExpenses(rows) {
   // Group rows by groupId to reconstruct receipt/linked types
   const groups = {};
@@ -2744,13 +2763,14 @@ function sheetsRowsToExpenses(rows) {
 
   rows.forEach(row => {
     const type = row.type;
+    const date = normalizeDate(row.date);
     if (type === 'single') {
       singles.push({
-        id: row.id,
+        id: String(row.id),
         type: 'single',
         amount: parseFloat(row.amount) || 0,
         merchant: row.merchant,
-        date: row.date,
+        date,
         category: row.category,
         subCategory: row.subCategory || '',
         tag: row.tag || '',
@@ -2758,8 +2778,8 @@ function sheetsRowsToExpenses(rows) {
         workRelated: row.workRelated === 'TRUE' || row.workRelated === true,
       });
     } else if (type === 'receipt-item' || type === 'linked-item') {
-      const gid = row.groupId;
-      if (!groups[gid]) groups[gid] = { rows: [], type };
+      const gid = String(row.groupId);
+      if (!groups[gid]) groups[gid] = { rows: [], type, date };
       groups[gid].rows.push(row);
     }
   });
@@ -2779,14 +2799,14 @@ function sheetsRowsToExpenses(rows) {
     if (g.type === 'receipt-item') {
       return {
         id: gid, type: 'receipt',
-        merchant: first.merchant, date: first.date,
+        merchant: first.merchant, date: normalizeDate(first.date),
         total, items,
         workRelated: first.workRelated === 'TRUE' || first.workRelated === true,
       };
     } else {
       return {
         id: gid, type: 'linked',
-        merchant: first.merchant, date: first.date,
+        merchant: first.merchant, date: normalizeDate(first.date),
         amount: total, items,
         category: first.category, subCategory: '',
         tag: first.tag || '',
