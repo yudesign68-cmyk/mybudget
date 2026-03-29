@@ -2715,24 +2715,26 @@ function exitReview() {
 /* ============================================================
    FETCH FROM SHEETS
    ============================================================ */
-async function fetchMonthFromSheets(year, month) {
+const PROXY_URL = 'https://mybudget-proxy.yudesign68.workers.dev';
+
+async function fetchFromProxy(params) {
   const url = getSheetsUrl();
   if (!url) return null;
-  return new Promise((resolve) => {
-    const cbName = 'mbcb_' + Date.now();
-    const script = document.createElement('script');
-    const timeout = setTimeout(() => {
-      delete window[cbName]; script.remove(); resolve(null);
-    }, 8000);
-    window[cbName] = function(data) {
-      clearTimeout(timeout); delete window[cbName]; script.remove();
-      if (data && data.success) resolve(sheetsRowsToExpenses(data.expenses || []));
-      else resolve(null);
-    };
-    script.src = `${url}?action=getMonth&year=${year}&month=${month+1}&callback=${cbName}`;
-    script.onerror = () => { clearTimeout(timeout); delete window[cbName]; resolve(null); };
-    document.head.appendChild(script);
-  });
+  try {
+    const qs = new URLSearchParams({ ...params });
+    const res = await fetch(`${PROXY_URL}/?${qs.toString()}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.success ? data : null;
+  } catch(e) {
+    return null;
+  }
+}
+
+async function fetchMonthFromSheets(year, month) {
+  const data = await fetchFromProxy({ action: 'getMonth', year, month: month + 1 });
+  if (!data) return null;
+  return sheetsRowsToExpenses(data.expenses || []);
 }
 
 function sheetsRowsToExpenses(rows) {
@@ -3692,31 +3694,7 @@ async function restoreFromSheets() {
 
   try {
     // Try fetch with no-cors first to test connectivity, then JSONP
-    const data = await new Promise((resolve) => {
-      const cbName = 'mbcb_restore_' + Date.now();
-      const script = document.createElement('script');
-      const timeout = setTimeout(() => {
-        delete window[cbName];
-        script.remove();
-        resolve(null);
-      }, 12000);
-
-      window[cbName] = function(d) {
-        clearTimeout(timeout);
-        delete window[cbName];
-        script.remove();
-        resolve(d);
-      };
-
-      script.src = `${url}?action=getAll&callback=${cbName}`;
-      script.onerror = () => {
-        clearTimeout(timeout);
-        delete window[cbName];
-        script.remove();
-        resolve(null);
-      };
-      document.head.appendChild(script);
-    });
+    const data = await fetchFromProxy({ action: 'getAll' });
 
     if (!data) {
       status.style.color = 'var(--err)';
@@ -3840,8 +3818,20 @@ S.viewMonth = new Date().getMonth();
 // Load settings from localStorage on startup
 loadLocal();
 
-// Auto-retry pending sync items on startup
-autoRetryPending();
+// Load this month's data from Sheets via proxy
+(async function loadFromSheets() {
+  const now = new Date();
+  const sheetsData = await fetchMonthFromSheets(now.getFullYear(), now.getMonth());
+  if (sheetsData && sheetsData.length > 0) {
+    // Merge with local — Sheets wins on same id
+    const sheetsIds = new Set(sheetsData.map(e => e.id));
+    const localOnly = S.expenses.filter(e => !sheetsIds.has(e.id));
+    S.expenses = [...sheetsData, ...localOnly].sort((a,b) => b.date.localeCompare(a.date));
+    saveLocal();
+    renderHome();
+  }
+  autoRetryPending();
+})();
 
 // Auto-retry when coming back online
 window.addEventListener('online', () => {
