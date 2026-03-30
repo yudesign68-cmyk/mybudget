@@ -2764,8 +2764,16 @@ function normalizeDate(val) {
   const s = String(val);
   // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // ISO string like 2026-03-29T13:00:00.000Z — just take the date part directly
-  if (s.includes('T')) return s.substring(0, 10);
+  // ISO string — convert to local date (not UTC)
+  if (s.includes('T') || s.includes('Z')) {
+    const d = new Date(s);
+    if (!isNaN(d)) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  }
   return s;
 }
 
