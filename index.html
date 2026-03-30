@@ -849,14 +849,14 @@ document.getElementById('pwa-manifest').href='data:application/manifest+json;bas
   <div id="screen-add" class="screen">
     <!-- Header -->
     <div style="padding:56px 20px 0;display:flex;align-items:center;justify-content:space-between">
-      <div style="font-size:28px;font-weight:700;letter-spacing:-0.5px">Add Expense</div>
+      <div id="add-screen-title" style="font-size:28px;font-weight:700;letter-spacing:-0.5px">Add Expense</div>
       <button onclick="goTo('home')" style="width:34px;height:34px;border-radius:50%;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tm)">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="width:16px;height:16px"><path d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z"/></svg>
       </button>
     </div>
 
     <!-- Tab switcher -->
-    <div style="display:flex;gap:8px;margin:20px 16px 0;background:var(--s2);border-radius:var(--r12);padding:4px;border:1px solid var(--border)">
+    <div class="add-tabs" style="display:flex;gap:8px;margin:20px 16px 0;background:var(--s2);border-radius:var(--r12);padding:4px;border:1px solid var(--border)">
       <button id="add-tab-photo" onclick="switchAddTab('photo')"
         style="flex:1;padding:9px;border-radius:var(--r8);border:none;font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;background:var(--surface);color:var(--t1);box-shadow:0 1px 3px rgba(0,0,0,0.08)">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="width:16px;height:16px"><path d="M208,52H182.42L170,33.34A12,12,0,0,0,160,28H96a12,12,0,0,0-10,5.34L73.57,52H48A28,28,0,0,0,20,80V192a28,28,0,0,0,28,28H208a28,28,0,0,0,28-28V80A28,28,0,0,0,208,52Zm4,140a4,4,0,0,1-4,4H48a4,4,0,0,1-4-4V80a4,4,0,0,1,4-4H80a12,12,0,0,0,10-5.34L102.42,52h51.15L166,70.66A12,12,0,0,0,176,76h32a4,4,0,0,1,4,4ZM128,84a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,84Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,128,156Z"/></svg>
@@ -1768,11 +1768,14 @@ function editExp(id) {
     return;
   }
   closeModal();
+
+  // Set editId BEFORE goTo so initAdd doesn't wipe it
+  manState.editId = exp.id;
+
   goTo('add');
 
-  // Switch to manual tab
   setTimeout(() => {
-    // Activate manual tab
+    // Switch to manual tab
     document.querySelectorAll('.add-tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.add-tab-pane').forEach(p => p.style.display = 'none');
     const manBtn = document.querySelector('[onclick*="switchAddTab(\'manual\')"]');
@@ -1795,13 +1798,25 @@ function editExp(id) {
     // Set category
     if (exp.category) {
       manState.cat = exp.category;
-      manState.sub = exp.subCategory || '';
+      manState.subCat = exp.subCategory || '';
       manState.tags = exp.tag ? exp.tag.split(',').map(t=>t.trim()).filter(Boolean) : [];
       renderManualChips();
     }
 
-    // Change Save button to Update and store edit id
+    // Restore editId (initAdd may have reset it)
     manState.editId = exp.id;
+
+    // Edit mode UI — hide photo tab, show only manual
+    const tabBar = document.querySelector('.add-tabs');
+    if (tabBar) tabBar.style.display = 'none';
+    document.getElementById('add-photo-tab').style.display = 'none';
+    document.getElementById('add-manual-tab').style.display = 'block';
+
+    // Change title
+    const addTitle = document.getElementById('add-screen-title');
+    if (addTitle) addTitle.textContent = 'Edit Expense';
+
+    // Change Save button to Update
     const saveBtn = document.getElementById('man-save-btn');
     if (saveBtn) saveBtn.textContent = 'Update it!';
   }, 100);
@@ -1978,8 +1993,8 @@ let manState = {
 };
 
 function initManual() {
-  // Reset state
-  manState = { cat: null, subCat: null, tags: [], isTransfer: false, editId: null };
+  const preserveEditId = manState.editId; // preserve if coming from editExp
+  manState = { cat: null, subCat: null, tags: [], isTransfer: false, editId: preserveEditId };
 
   // Reset fields
   document.getElementById('man-amount').value = '';
@@ -2147,6 +2162,13 @@ function saveManual() {
 function initAdd() {
   switchAddTab('photo');
   initManual();
+  // Restore normal Add UI (in case coming from edit mode)
+  const tabBar = document.querySelector('.add-tabs');
+  if (tabBar) tabBar.style.display = 'flex';
+  const addTitle = document.getElementById('add-screen-title');
+  if (addTitle) addTitle.textContent = 'Add Expense';
+  const saveBtn = document.getElementById('man-save-btn');
+  if (saveBtn) saveBtn.textContent = 'Save it!';
 } // 'bank' | 'receipt'
 
 function switchAddTab(tab) {
@@ -2742,17 +2764,8 @@ function normalizeDate(val) {
   const s = String(val);
   // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // ISO string like 2026-03-19T13:00:00.000Z — extract date part in local time
-  if (s.includes('T')) {
-    const d = new Date(s);
-    if (!isNaN(d)) {
-      // Use UTC date to avoid timezone shift
-      const y = d.getUTCFullYear();
-      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(d.getUTCDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    }
-  }
+  // ISO string like 2026-03-29T13:00:00.000Z — just take the date part directly
+  if (s.includes('T')) return s.substring(0, 10);
   return s;
 }
 
