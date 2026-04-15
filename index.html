@@ -4088,12 +4088,16 @@ loadLocal();
 // Load this month's data from Sheets via proxy
 (async function loadFromSheets() {
   const now = new Date();
-  const sheetsData = await fetchMonthFromSheets(now.getFullYear(), now.getMonth());
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const sheetsData = await fetchMonthFromSheets(y, m);
   if (sheetsData && sheetsData.length > 0) {
-    // Merge with local — Sheets wins on same id
-    const sheetsIds = new Set(sheetsData.map(e => e.id));
-    const localOnly = S.expenses.filter(e => !sheetsIds.has(e.id));
-    S.expenses = [...sheetsData, ...localOnly].sort((a,b) => b.date.localeCompare(a.date));
+    // Replace this month's local data with Sheets data (avoid duplicates)
+    const otherMonths = S.expenses.filter(e => {
+      const d = new Date(e.date + 'T00:00:00');
+      return !(d.getFullYear() === y && d.getMonth() === m);
+    });
+    S.expenses = [...sheetsData, ...otherMonths].sort((a,b) => b.date.localeCompare(a.date));
     saveLocal();
     renderHome();
   }
