@@ -1657,7 +1657,7 @@ function renderHome() {
 
   // No-Spend strip stats
   const todayStr = new Date().toISOString().split('T')[0];
-  const spendDays = new Set(S.expenses.map(e => e.date));
+  const spendDays = new Set(S.expenses.map(e => normalizeDate(e.date)));
 
   // startDate = first expense date (no tracking before this)
   const startDate = S.expenses.length
@@ -3490,7 +3490,7 @@ function renderChallenge() {
 
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
-  const spendDays = new Set(S.expenses.map(e => e.date));
+  const spendDays = new Set(S.expenses.map(e => normalizeDate(e.date)));
   const isNoSpend = s => !spendDays.has(s);
   const isFuture  = s => s > todayStr;
   const isToday   = s => s === todayStr;
